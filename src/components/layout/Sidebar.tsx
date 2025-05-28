@@ -9,7 +9,6 @@ import {
   LogOut,
 } from "lucide-react";
 import { useAuth } from "../../context/AuthContext";
-import logo from "../../public/logo.png"; 
 
 interface SidebarProps {
   closeSidebar?: () => void;
@@ -30,7 +29,7 @@ const Sidebar: React.FC<SidebarProps> = ({ closeSidebar }) => {
     <div className="h-full flex flex-col">
       <div className="flex items-center justify-between h-16 flex-shrink-0 px-4 bg-white border-b border-gray-200">
         <div className="flex items-center">
-          <img src={logo} alt="Logo" width={32} height={32} />
+          <img src="/logo.png" alt="Logo" width={32} height={32} />
           <span className="ml-2 text-xl font-semibold text-gray-900">
             Leads Manager
           </span>
@@ -105,6 +104,10 @@ const Sidebar: React.FC<SidebarProps> = ({ closeSidebar }) => {
             Settings
           </NavLink>
         </nav>
+
+        <div className="mt-3 px-3 py-2 text-s text-gray-400">
+          Beta Version 1.0.0
+        </div>
 
         <div className="px-3 py-4 border-t border-gray-200">
           <button

@@ -18,7 +18,14 @@
     "strict": true,
     "noUnusedLocals": true,
     "noUnusedParameters": true,
-    "noFallthroughCasesInSwitch": true
+    "noFallthroughCasesInSwitch": true,
+
+    // 👇 Add this:
+    "baseUrl": ".",
+    "paths": {
+      "@/components/*": ["src/components/*"],
+      "@/lib/*": ["src/lib/*"]
+    }
   },
   "include": ["src"]
 }

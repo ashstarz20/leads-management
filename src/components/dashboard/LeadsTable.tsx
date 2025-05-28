@@ -1,25 +1,37 @@
-import React, { useState } from "react";
+import React, { useState, useMemo } from "react";
 import { format, parseISO } from "date-fns";
 import { Lead } from "../../types";
-import { Phone, ExternalLink } from "lucide-react";
+import { Phone, ExternalLink, ChevronDown, ChevronUp } from "lucide-react";
 import { updateLeadStatus } from "../../services/api";
+import { SyncLoader } from "react-spinners";
 
 interface LeadsTableProps {
   leads: Lead[];
   onStatusUpdate: (index: string, newStatus: string) => void;
+  isLoading?: boolean;
+  viewingUserPhone: string;
 }
 
-const LeadsTable: React.FC<LeadsTableProps> = ({ leads, onStatusUpdate }) => {
+const LeadsTable: React.FC<LeadsTableProps> = ({
+  leads,
+  onStatusUpdate,
+  isLoading = false,
+  viewingUserPhone,
+}) => {
   const [searchTerm, setSearchTerm] = useState("");
   const [statusFilter, setStatusFilter] = useState<string>("all");
   const [platformFilter, setPlatformFilter] = useState<string>("all");
   const [currentPage, setCurrentPage] = useState(1);
+  const [sortConfig, setSortConfig] = useState<{
+    key: keyof Lead;
+    direction: "asc" | "desc";
+  } | null>(null);
+  const [expandedRow, setExpandedRow] = useState<string | null>(null);
+  const [updatingStatus, setUpdatingStatus] = useState<string | null>(null);
+
   const itemsPerPage = 20;
 
-  // **NEW**: track which lead is currently selected for detail view
-  const [detailLead, setDetailLead] = useState<Lead | null>(null);
-
-  // **NEW**: parse comments into a map of label→value
+  // Parse comments into a map of label→value
   const parseComments = (comments: string) => {
     const parts = comments.split(/📢|👤|📞|📍|💰|👶|🏆/).filter(Boolean);
     const labels = [
@@ -33,41 +45,86 @@ const LeadsTable: React.FC<LeadsTableProps> = ({ leads, onStatusUpdate }) => {
       "Lead Score",
     ];
     return parts.map((txt, i) => {
-      // trim any leading “:” or whitespace
       const value = txt.replace(/^[:\s]+/, "");
       return { label: labels[i] || `Field ${i + 1}`, value };
     });
   };
 
   const handleStatusChange = async (leadId: string, newStatus: string) => {
+    setUpdatingStatus(leadId);
     try {
-      await updateLeadStatus(leadId, newStatus);
+      await updateLeadStatus(leadId, newStatus, viewingUserPhone); // Pass viewingUserPhone
       onStatusUpdate(leadId, newStatus);
     } catch (error) {
       console.error("Error updating status:", error);
+    } finally {
+      setUpdatingStatus(null);
     }
   };
 
   // Filter leads based on search term and filters
-  const filteredLeads = leads.filter((lead) => {
-    const matchesSearch =
-      lead.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
-      lead.whatsapp_number_.includes(searchTerm) ||
-      lead.comments.toLowerCase().includes(searchTerm.toLowerCase());
+  const filteredLeads = useMemo(() => {
+    return leads.filter((lead) => {
+      const matchesSearch =
+        lead.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
+        lead.whatsapp_number_.includes(searchTerm) ||
+        lead.comments.toLowerCase().includes(searchTerm.toLowerCase());
 
-    const matchesStatus =
-      statusFilter === "all" || lead.lead_status === statusFilter;
-    const matchesPlatform =
-      platformFilter === "all" || lead.platform === platformFilter;
+      const matchesStatus =
+        statusFilter === "all" || lead.lead_status === statusFilter;
+      const matchesPlatform =
+        platformFilter === "all" || lead.platform === platformFilter;
 
-    return matchesSearch && matchesStatus && matchesPlatform;
-  });
+      return matchesSearch && matchesStatus && matchesPlatform;
+    });
+  }, [leads, searchTerm, statusFilter, platformFilter]);
 
-  // Sort leads by created_time in descending order
-  filteredLeads.sort(
-    (a, b) =>
-      new Date(b.created_time).getTime() - new Date(a.created_time).getTime()
-  );
+  // Apply sorting
+  const sortedLeads = useMemo(() => {
+    if (!sortConfig) return filteredLeads;
+
+    return [...filteredLeads].sort((a, b) => {
+      const aValue = a[sortConfig.key];
+      const bValue = b[sortConfig.key];
+
+      if (aValue === undefined || bValue === undefined) {
+        return 0;
+      }
+
+      if (aValue < bValue) {
+        return sortConfig.direction === "asc" ? -1 : 1;
+      }
+      if (aValue > bValue) {
+        return sortConfig.direction === "asc" ? 1 : -1;
+      }
+      return 0;
+    });
+  }, [filteredLeads, sortConfig]);
+
+  // Apply pagination
+  const paginatedLeads = useMemo(() => {
+    return sortedLeads.slice(
+      (currentPage - 1) * itemsPerPage,
+      currentPage * itemsPerPage
+    );
+  }, [sortedLeads, currentPage]);
+
+  const requestSort = (key: keyof Lead) => {
+    let direction: "asc" | "desc" = "asc";
+    if (sortConfig?.key === key && sortConfig.direction === "asc") {
+      direction = "desc";
+    }
+    setSortConfig({ key, direction });
+  };
+
+  const getSortIndicator = (key: keyof Lead) => {
+    if (!sortConfig || sortConfig.key !== key) return null;
+    return sortConfig.direction === "asc" ? (
+      <ChevronUp className="ml-1 h-4 w-4 inline" />
+    ) : (
+      <ChevronDown className="ml-1 h-4 w-4 inline" />
+    );
+  };
 
   // Get unique statuses for filter dropdown
   const statuses = Array.from(
@@ -79,17 +136,11 @@ const LeadsTable: React.FC<LeadsTableProps> = ({ leads, onStatusUpdate }) => {
     new Set(leads.map((lead) => lead.platform))
   ).filter(Boolean);
 
-  // Calculate pagination
-  const totalPages = Math.ceil(filteredLeads.length / itemsPerPage);
-  const paginatedLeads = filteredLeads.slice(
-    (currentPage - 1) * itemsPerPage,
-    currentPage * itemsPerPage
-  );
+  const totalPages = Math.ceil(sortedLeads.length / itemsPerPage);
 
   const formatDate = (dateString: string) => {
     try {
       return format(parseISO(dateString), "MMM dd, yyyy hh:mm a");
-      // Example output: May 23, 2025 04:30 PM
     } catch {
       return dateString;
     }
@@ -117,6 +168,30 @@ const LeadsTable: React.FC<LeadsTableProps> = ({ leads, onStatusUpdate }) => {
         return "bg-gray-100 text-gray-800";
     }
   };
+
+  if (isLoading) {
+    return (
+      <div className="flex justify-center items-center h-64">
+        <SyncLoader color="#3b82f6" />
+      </div>
+    );
+  }
+
+  if (leads.length === 0) {
+    return (
+      <div className="text-center py-12">
+        <div className="bg-gray-100 border-2 border-dashed rounded-xl w-16 h-16 mx-auto flex items-center justify-center">
+          <X className="h-8 w-8 text-gray-400" />
+        </div>
+        <h3 className="mt-4 text-lg font-medium text-gray-900">
+          No leads found
+        </h3>
+        <p className="mt-1 text-sm text-gray-500">
+          There are no leads to display at the moment.
+        </p>
+      </div>
+    );
+  }
 
   return (
     <div className="bg-white rounded-lg shadow overflow-hidden">
@@ -186,15 +261,23 @@ const LeadsTable: React.FC<LeadsTableProps> = ({ leads, onStatusUpdate }) => {
             <tr>
               <th
                 scope="col"
-                className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider"
+                className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider cursor-pointer"
+                onClick={() => requestSort("name")}
               >
-                Name
+                <div className="flex items-center">
+                  Name
+                  {getSortIndicator("name")}
+                </div>
               </th>
               <th
                 scope="col"
-                className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider"
+                className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider cursor-pointer"
+                onClick={() => requestSort("whatsapp_number_")}
               >
-                Contact
+                <div className="flex items-center">
+                  WhatsApp
+                  {getSortIndicator("whatsapp_number_")}
+                </div>
               </th>
               <th
                 scope="col"
@@ -216,9 +299,13 @@ const LeadsTable: React.FC<LeadsTableProps> = ({ leads, onStatusUpdate }) => {
               </th>
               <th
                 scope="col"
-                className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider"
+                className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider cursor-pointer"
+                onClick={() => requestSort("created_time")}
               >
-                Date
+                <div className="flex items-center">
+                  Date
+                  {getSortIndicator("created_time")}
+                </div>
               </th>
               <th
                 scope="col"
@@ -235,31 +322,23 @@ const LeadsTable: React.FC<LeadsTableProps> = ({ leads, onStatusUpdate }) => {
             </tr>
           </thead>
           <tbody className="bg-white divide-y divide-gray-200">
-            {paginatedLeads.length > 0 ? (
-              paginatedLeads.map((lead) => (
-                <tr
-                  key={lead.id}
-                  className="hover:bg-gray-50 transition-colors duration-150"
-                >
-                  {/* <td className="px-6 py-4 whitespace-nowrap flex items-center justify-between">
-                    <span className="text-sm font-medium text-gray-900">
-                      {lead.name}
-                    </span>
-                    <div className="relative inline-block text-left">
-                      <button
-                        onClick={() => setDetailLead(lead)}
-                        className="p-1 hover:bg-gray-100 rounded-full focus:outline-none"
-                        title="Actions"
-                      >
-                        <MoreVertical className="h-5 w-5 text-gray-500" />
-                      </button>
-                    </div>
-                  </td> */}
+            {paginatedLeads.map((lead) => (
+              <React.Fragment key={lead.id}>
+                <tr className="hover:bg-gray-50 transition-colors duration-150">
                   <td
                     className="px-6 py-4 whitespace-nowrap text-sm font-medium text-blue-600 hover:text-blue-800 hover:underline cursor-pointer"
-                    onClick={() => setDetailLead(lead)}
+                    onClick={() =>
+                      setExpandedRow(expandedRow === lead.id ? null : lead.id!)
+                    }
                   >
-                    {lead.name}
+                    <div className="flex items-center">
+                      {lead.name}
+                      {expandedRow === lead.id ? (
+                        <ChevronUp className="ml-2 h-4 w-4" />
+                      ) : (
+                        <ChevronDown className="ml-2 h-4 w-4" />
+                      )}
+                    </div>
                   </td>
 
                   <td className="px-6 py-4 whitespace-nowrap">
@@ -281,7 +360,7 @@ const LeadsTable: React.FC<LeadsTableProps> = ({ leads, onStatusUpdate }) => {
                     </div>
                   </td>
                   <td className="px-6 py-4 whitespace-nowrap">
-                    <div className="text-sm text-gray-500 uppercase">
+                    <div className="text-sm text-gray-500">
                       {extractScore(lead.comments)}
                     </div>
                   </td>
@@ -301,7 +380,6 @@ const LeadsTable: React.FC<LeadsTableProps> = ({ leads, onStatusUpdate }) => {
                   </td>
                   <td className="px-6 py-4 whitespace-nowrap text-right text-sm font-medium">
                     <div className="flex items-center justify-end space-x-2">
-                      {/* External view link */}
                       <a
                         href={`https://web.whatsapp.com/send?phone=${lead.whatsapp_number_}`}
                         target="_blank"
@@ -312,66 +390,82 @@ const LeadsTable: React.FC<LeadsTableProps> = ({ leads, onStatusUpdate }) => {
                         <ExternalLink size={16} />
                       </a>
 
-                      {/* Status dropdown */}
-                      <select
-                        value={lead.lead_status}
-                        onChange={(e) =>
-                          handleStatusChange(lead.id!, e.target.value)
-                        }
-                        className="bg-gray-100 border border-gray-300 text-gray-800 text-sm rounded px-2 py-1 focus:outline-none focus:ring-2 focus:ring-blue-500"
-                      >
-                        <option value="New">New</option>
-                        <option value="Meeting Done">Meeting Done</option>
-                        <option value="Deal Done">Deal Done</option>
-                      </select>
+                      <div className="relative">
+                        <select
+                          value={lead.lead_status}
+                          onChange={(e) =>
+                            handleStatusChange(lead.id!, e.target.value)
+                          }
+                          disabled={updatingStatus === lead.id}
+                          className={`bg-gray-100 border border-gray-300 text-gray-800 text-sm rounded px-2 py-1 focus:outline-none focus:ring-2 focus:ring-blue-500 ${
+                            updatingStatus === lead.id
+                              ? "cursor-not-allowed opacity-70"
+                              : ""
+                          }`}
+                        >
+                          <option value="New Lead">New</option>
+                          <option value="Contacted">Contacted</option>
+                          <option value="Meeting Scheduled">
+                            Meeting Scheduled
+                          </option>
+                          <option value="Meeting Done">Meeting Done</option>
+                          <option value="Deal Done">Deal Done</option>
+                          <option value="Closed Lost">Closed Lost</option>
+                        </select>
+                        {updatingStatus === lead.id && (
+                          <div className="absolute inset-0 flex items-center justify-center bg-gray-100 rounded">
+                            <SyncLoader size={5} color="#3b82f6" />
+                          </div>
+                        )}
+                      </div>
                     </div>
                   </td>
                 </tr>
-              ))
-            ) : (
-              <tr>
-                <td
-                  colSpan={7}
-                  className="px-6 py-4 text-center text-sm text-gray-500"
-                >
-                  No leads found matching your criteria
-                </td>
-              </tr>
-            )}
+                {expandedRow === lead.id && (
+                  <tr>
+                    <td colSpan={8} className="px-6 py-4 bg-gray-50">
+                      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                        <div>
+                          <h4 className="text-sm font-medium text-gray-900 mb-2">
+                            Contact Info
+                          </h4>
+                          <p className="text-sm text-gray-700">
+                            <span className="font-medium">Name:</span>{" "}
+                            {lead.name}
+                          </p>
+                          <p className="text-sm text-gray-700">
+                            <span className="font-medium">Phone:</span>{" "}
+                            {lead.phone || "N/A"}
+                          </p>
+                          <p className="text-sm text-gray-700">
+                            <span className="font-medium">Email:</span>{" "}
+                            {lead.email || "N/A"}
+                          </p>
+                        </div>
+                        <div>
+                          <h4 className="text-sm font-medium text-gray-900 mb-2">
+                            Details
+                          </h4>
+                          {parseComments(lead.comments).map(
+                            ({ label, value }, index) => (
+                              <p key={index} className="text-sm text-gray-700">
+                                <span className="font-medium">{label}:</span>{" "}
+                                {value}
+                              </p>
+                            )
+                          )}
+                        </div>
+                      </div>
+                    </td>
+                  </tr>
+                )}
+              </React.Fragment>
+            ))}
           </tbody>
         </table>
       </div>
 
-      {/* —————— Detail Modal —————— */}
-      {detailLead && (
-        <div
-          className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50"
-          onClick={() => setDetailLead(null)}
-        >
-          <div
-            className="bg-white rounded-lg max-w-lg w-full p-6 relative"
-            onClick={(e) => e.stopPropagation()}
-          >
-            <h2 className="text-xl font-semibold mb-4">Lead Details</h2>
-            <div className="space-y-2">
-              {parseComments(detailLead.comments).map(({ label, value }) => (
-                <div key={label} className="flex">
-                  <span className="font-medium w-40">{label}:</span>
-                  <span className="flex-1">{value}</span>
-                </div>
-              ))}
-            </div>
-            <button
-              onClick={() => setDetailLead(null)}
-              className="absolute top-3 right-3 text-gray-500 hover:text-gray-700"
-            >
-              ✕
-            </button>
-          </div>
-        </div>
-      )}
-
-      {/* Simplified Pagination */}
+      {/* Pagination */}
       {totalPages > 1 && (
         <div className="bg-white px-4 py-3 flex items-center justify-between border-t border-gray-200">
           <div className="flex-1 flex justify-between items-center">
@@ -382,10 +476,9 @@ const LeadsTable: React.FC<LeadsTableProps> = ({ leads, onStatusUpdate }) => {
               </span>{" "}
               to{" "}
               <span className="font-medium">
-                {Math.min(currentPage * itemsPerPage, filteredLeads.length)}
+                {Math.min(currentPage * itemsPerPage, sortedLeads.length)}
               </span>{" "}
-              of <span className="font-medium">{filteredLeads.length}</span>{" "}
-              leads
+              of <span className="font-medium">{sortedLeads.length}</span> leads
             </p>
             <div className="flex space-x-2">
               <button
@@ -421,5 +514,21 @@ const LeadsTable: React.FC<LeadsTableProps> = ({ leads, onStatusUpdate }) => {
 };
 
 export default LeadsTable;
-// Dropdown state for status change actions (optional, for future dropdown UI)
-// (Removed unused openDropdown state)
+
+// Helper component for the "X" icon
+const X = ({ className }: { className?: string }) => (
+  <svg
+    className={className}
+    fill="none"
+    stroke="currentColor"
+    viewBox="0 0 24 24"
+    xmlns="http://www.w3.org/2000/svg"
+  >
+    <path
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      strokeWidth={2}
+      d="M6 18L18 6M6 6l12 12"
+    />
+  </svg>
+);

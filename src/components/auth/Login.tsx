@@ -9,7 +9,6 @@ import { auth } from "../../config/firebase";
 import { Phone, ArrowRight } from "lucide-react";
 import { useNavigate } from "react-router-dom";
 import { normalizePhone } from "../../utils/phone";
-import logo from "../../public/logo.png";
 
 type Step = "phone" | "otp" | "business";
 
@@ -128,7 +127,7 @@ const Login: React.FC = () => {
         <div className="text-center mb-8">
           <div className="flex justify-center mb-4">
             <img
-              src={logo}
+              src="/logo.png"
               alt="Logo"
               width={61}
               height={61}

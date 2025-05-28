@@ -304,7 +304,7 @@ const Dashboard: React.FC = () => {
   }
 
   return (
-    <div className="container mx-auto px-4 py-6">
+    <div className="container mx-auto px-1 py-3">
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-6 mb-8">
         {kpis.map((kpi, index) => (
           <KPICard
@@ -317,41 +317,39 @@ const Dashboard: React.FC = () => {
         ))}
       </div>
 
-      <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-6">
-        <div className="flex flex-col md:flex-row md:items-center md:justify-between mb-6">
-          <div>
-            <h2 className="text-xl font-semibold text-gray-800">
-              Recent Leads
-            </h2>
-            <p className="text-sm text-gray-500 mt-1">
-              {leads.length} records found
-            </p>
-          </div>
-          <div className="mt-4 md:mt-0 flex flex-col sm:flex-row gap-3">
-            {isAdmin && <UserDropdown />}
-            <button
-              onClick={handleExportCSV}
-              disabled={userSwitchLoading}
-              className={`inline-flex items-center justify-center px-4 py-2 border border-transparent text-sm font-medium rounded-md shadow-sm text-white bg-gradient-to-r from-blue-600 to-blue-700 hover:from-blue-700 hover:to-blue-800 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500 transition-all duration-200 ${
-                userSwitchLoading ? "opacity-70 cursor-not-allowed" : ""
-              }`}
-            >
-              {userSwitchLoading ? (
-                <SyncLoader size={6} color="#ffffff" />
-              ) : (
-                "Export to CSV"
-              )}
-            </button>
-          </div>
+      {/* <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-6"> */}
+      <div className="flex flex-col md:flex-row md:items-center md:justify-between mb-6">
+        <div>
+          <h2 className="text-xl font-semibold text-gray-800">Recent Leads</h2>
+          <p className="text-sm text-gray-500 mt-1">
+            {leads.length} records found
+          </p>
         </div>
-
-        <LeadsTable
-          leads={leads}
-          onStatusUpdate={handleStatusUpdate}
-          isLoading={userSwitchLoading}
-          viewingUserPhone={viewingUserPhone}
-        />
+        <div className="mt-4 md:mt-0 flex flex-col sm:flex-row gap-3">
+          {isAdmin && <UserDropdown />}
+          <button
+            onClick={handleExportCSV}
+            disabled={userSwitchLoading}
+            className={`inline-flex items-center justify-center px-4 py-2 border border-transparent text-sm font-medium rounded-md shadow-sm text-white bg-gradient-to-r from-blue-600 to-blue-700 hover:from-blue-700 hover:to-blue-800 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500 transition-all duration-200 ${
+              userSwitchLoading ? "opacity-70 cursor-not-allowed" : ""
+            }`}
+          >
+            {userSwitchLoading ? (
+              <SyncLoader size={6} color="#ffffff" />
+            ) : (
+              "Export to CSV"
+            )}
+          </button>
+        </div>
       </div>
+
+      <LeadsTable
+        leads={leads}
+        onStatusUpdate={handleStatusUpdate}
+        isLoading={userSwitchLoading}
+        viewingUserPhone={viewingUserPhone}
+      />
+      {/* </div> */}
     </div>
   );
 };

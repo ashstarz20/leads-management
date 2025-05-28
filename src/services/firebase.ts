@@ -86,7 +86,11 @@ export const createLead = async (leadData: Lead) => {
 export const updateLead = (id: string, data: Partial<Lead>) =>
   updateDoc(doc(getLeadsCol(), id), data);
 
-export const updateLeadByUser = (userPhone: string, id: string, data: Partial<Lead>) => {
+export const updateLeadByUser = (
+  userPhone: string,
+  id: string,
+  data: Partial<Lead>
+) => {
   const leadDocRef = doc(db, `crm_users/${userPhone}/leads`, id);
   return updateDoc(leadDocRef, data);
 };

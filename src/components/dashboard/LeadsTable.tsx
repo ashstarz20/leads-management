@@ -12,6 +12,8 @@ interface LeadsTableProps {
   viewingUserPhone: string;
 }
 
+const STATUS_OPTIONS = ["New Lead", "Meeting Done", "Deal Done"];
+
 const LeadsTable: React.FC<LeadsTableProps> = ({
   leads,
   onStatusUpdate,
@@ -25,7 +27,10 @@ const LeadsTable: React.FC<LeadsTableProps> = ({
   const [sortConfig, setSortConfig] = useState<{
     key: keyof Lead;
     direction: "asc" | "desc";
-  } | null>(null);
+  }>({
+    key: "created_time",
+    direction: "desc",
+  });
   const [expandedRow, setExpandedRow] = useState<string | null>(null);
   const [updatingStatus, setUpdatingStatus] = useState<string | null>(null);
 
@@ -81,24 +86,35 @@ const LeadsTable: React.FC<LeadsTableProps> = ({
 
   // Apply sorting
   const sortedLeads = useMemo(() => {
-    if (!sortConfig) return filteredLeads;
+    const leadsToSort = [...filteredLeads];
 
-    return [...filteredLeads].sort((a, b) => {
-      const aValue = a[sortConfig.key];
-      const bValue = b[sortConfig.key];
+    if (sortConfig) {
+      leadsToSort.sort((a, b) => {
+        const aValue = a[sortConfig.key];
+        const bValue = b[sortConfig.key];
 
-      if (aValue === undefined || bValue === undefined) {
+        if (aValue === undefined || bValue === undefined) {
+          return 0;
+        }
+
+        if (aValue < bValue) {
+          return sortConfig.direction === "asc" ? -1 : 1;
+        }
+        if (aValue > bValue) {
+          return sortConfig.direction === "asc" ? 1 : -1;
+        }
         return 0;
-      }
+      });
+    } else {
+      // Default sort by created_time in descending order
+      leadsToSort.sort((a, b) => {
+        const aTime = new Date(a.created_time).getTime();
+        const bTime = new Date(b.created_time).getTime();
+        return bTime - aTime; // descending
+      });
+    }
 
-      if (aValue < bValue) {
-        return sortConfig.direction === "asc" ? -1 : 1;
-      }
-      if (aValue > bValue) {
-        return sortConfig.direction === "asc" ? 1 : -1;
-      }
-      return 0;
-    });
+    return leadsToSort;
   }, [filteredLeads, sortConfig]);
 
   // Apply pagination
@@ -194,8 +210,8 @@ const LeadsTable: React.FC<LeadsTableProps> = ({
   }
 
   return (
-    <div className="bg-white rounded-lg shadow overflow-hidden">
-      <div className="p-4 sm:p-6 border-b border-gray-200">
+    <div className="bg-white rounded-lg border border-gray-200">
+      <div className="p-4 border-b border-gray-200">
         <div className="sm:flex sm:items-center sm:justify-between">
           <div className="flex-1">
             <div className="relative">
@@ -262,21 +278,21 @@ const LeadsTable: React.FC<LeadsTableProps> = ({
               <th
                 scope="col"
                 className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider cursor-pointer"
-                onClick={() => requestSort("name")}
+                // onClick={() => requestSort("name")}
               >
                 <div className="flex items-center">
                   Name
-                  {getSortIndicator("name")}
+                  {/* {getSortIndicator("name")} */}
                 </div>
               </th>
               <th
                 scope="col"
                 className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider cursor-pointer"
-                onClick={() => requestSort("whatsapp_number_")}
+                // onClick={() => requestSort("whatsapp_number_")}
               >
                 <div className="flex items-center">
                   WhatsApp
-                  {getSortIndicator("whatsapp_number_")}
+                  {/* {getSortIndicator("whatsapp_number_")} */}
                 </div>
               </th>
               <th
@@ -403,14 +419,11 @@ const LeadsTable: React.FC<LeadsTableProps> = ({
                               : ""
                           }`}
                         >
-                          <option value="New Lead">New</option>
-                          <option value="Contacted">Contacted</option>
-                          <option value="Meeting Scheduled">
-                            Meeting Scheduled
-                          </option>
-                          <option value="Meeting Done">Meeting Done</option>
-                          <option value="Deal Done">Deal Done</option>
-                          <option value="Closed Lost">Closed Lost</option>
+                          {STATUS_OPTIONS.map((status) => (
+                            <option key={status} value={status}>
+                              {status}
+                            </option>
+                          ))}
                         </select>
                         {updatingStatus === lead.id && (
                           <div className="absolute inset-0 flex items-center justify-center bg-gray-100 rounded">
@@ -424,9 +437,9 @@ const LeadsTable: React.FC<LeadsTableProps> = ({
                 {expandedRow === lead.id && (
                   <tr>
                     <td colSpan={8} className="px-6 py-4 bg-gray-50">
-                      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                      <div className="flex flex-col md:flex-row md:space-x-10 space-y-2 md:space-y-0">
                         <div>
-                          <h4 className="text-sm font-medium text-gray-900 mb-2">
+                          <h4 className="text-sm font-medium text-gray-900 mb-1">
                             Contact Info
                           </h4>
                           <p className="text-sm text-gray-700">
@@ -435,20 +448,16 @@ const LeadsTable: React.FC<LeadsTableProps> = ({
                           </p>
                           <p className="text-sm text-gray-700">
                             <span className="font-medium">Phone:</span>{" "}
-                            {lead.phone || "N/A"}
-                          </p>
-                          <p className="text-sm text-gray-700">
-                            <span className="font-medium">Email:</span>{" "}
-                            {lead.email || "N/A"}
+                            {lead.whatsapp_number_ || "N/A"}
                           </p>
                         </div>
                         <div>
-                          <h4 className="text-sm font-medium text-gray-900 mb-2">
+                          <h4 className="text-sm font-medium text-gray-900 mb-1">
                             Details
                           </h4>
                           {parseComments(lead.comments).map(
-                            ({ label, value }, index) => (
-                              <p key={index} className="text-sm text-gray-700">
+                            ({ label, value }, i) => (
+                              <p key={i} className="text-sm text-gray-700">
                                 <span className="font-medium">{label}:</span>{" "}
                                 {value}
                               </p>

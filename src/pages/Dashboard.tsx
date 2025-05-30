@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from "react";
+import React, { useEffect, useState, useCallback } from "react";
 import { Users, Check, Award, ChevronDown } from "lucide-react";
 import KPICard from "../components/dashboard/KPICard";
 import LeadsTable from "../components/dashboard/LeadsTable";
@@ -12,6 +12,9 @@ import { doc, getDoc } from "firebase/firestore";
 import ReactSelect, { components } from "react-select";
 import { SyncLoader } from "react-spinners";
 import { StylesConfig, GroupBase } from "react-select";
+import { fetchCustomKpis } from "../services/customKpis";
+import { CustomKpi } from "../types/types";
+import { Home, Mail, FileText, MapPin } from "lucide-react";
 
 const Dashboard: React.FC = () => {
   const [leads, setLeads] = useState<Lead[]>([]);
@@ -31,6 +34,75 @@ const Dashboard: React.FC = () => {
   const [userSwitchLoading, setUserSwitchLoading] = useState(false);
   // Add viewingUserPhone to state
   const [viewingUserPhone, setViewingUserPhone] = useState("");
+  const [customKpis, setCustomKpis] = useState<CustomKpi[]>([]);
+
+  const computeKPIs = useCallback(
+    (list: Lead[]) => {
+      const meetingDone = list.filter(
+        (l) => l.lead_status === "Meeting Done"
+      ).length;
+      const dealDone = list.filter((l) => l.lead_status === "Deal Done").length;
+
+      // Default cards
+      const defaultKpis: KPI[] = [
+        {
+          title: "Total Leads",
+          value: list.length,
+          icon: <Users size={24} />,
+          color: "blue",
+        },
+        {
+          title: "Meeting Done",
+          value: meetingDone,
+          icon: <Check size={24} />,
+          color: "orange",
+        },
+        {
+          title: "Deal Done",
+          value: dealDone,
+          icon: <Award size={24} />,
+          color: "green",
+        },
+      ];
+
+      // Custom cards
+      const customCards: KPI[] = customKpis.map((kpi) => {
+        const count = list.filter((l) => l.lead_status === kpi.label).length;
+        let iconComponent: React.ReactNode;
+
+        switch (kpi.icon) {
+          case "home":
+            iconComponent = <Home size={24} />;
+            break;
+          case "mail":
+            iconComponent = <Mail size={24} />;
+            break;
+          case "file-text":
+            iconComponent = <FileText size={24} />;
+            break;
+          case "map-pin":
+            iconComponent = <MapPin size={24} />;
+            break;
+          default:
+            iconComponent = <Home size={24} />;
+        }
+
+        return {
+          title: kpi.label,
+          value: count,
+          icon: iconComponent,
+          color: kpi.color,
+        };
+      });
+
+      return [...defaultKpis, ...customCards];
+    },
+    [customKpis] // <-- re-create whenever customKpis change
+  );
+
+  useEffect(() => {
+    setKpis(computeKPIs(leads));
+  }, [leads, customKpis, computeKPIs]);
 
   useEffect(() => {
     const load = async () => {
@@ -61,15 +133,18 @@ const Dashboard: React.FC = () => {
           }
         }
 
+        // 1. Fetch initial leads
         const initial = await fetchLeadsFromFirestore();
         setLeads(initial);
-        computeKPIs(initial);
 
+        // 2. Sync from Sheets, then re-fetch
         await syncLeadsFromSheets();
-
         const updated = await fetchLeadsFromFirestore();
         setLeads(updated);
-        computeKPIs(updated);
+
+        // 3. Fetch custom KPIs
+        const kpis = await fetchCustomKpis(sanitizedPhone);
+        setCustomKpis(kpis);
       } catch (err: unknown) {
         console.error("Error loading leads:", err);
         if (axios.isAxiosError(err) && err.response?.status === 500) {
@@ -86,36 +161,21 @@ const Dashboard: React.FC = () => {
     load();
   }, []);
 
+  // Update when viewing user changes
   useEffect(() => {
-    computeKPIs(leads);
-  }, [leads]);
+    const loadCustomKpis = async () => {
+      if (viewingUserPhone) {
+        try {
+          const kpis = await fetchCustomKpis(viewingUserPhone);
+          setCustomKpis(kpis);
+        } catch (error) {
+          console.error("Failed to load custom KPIs", error);
+        }
+      }
+    };
 
-  const computeKPIs = (list: Lead[]) => {
-    const meetingDone = list.filter(
-      (l) => l.lead_status === "Meeting Done"
-    ).length;
-    const dealDone = list.filter((l) => l.lead_status === "Deal Done").length;
-    setKpis([
-      {
-        title: "Total Leads",
-        value: list.length,
-        icon: <Users size={24} />,
-        color: "blue",
-      },
-      {
-        title: "Meeting Done",
-        value: meetingDone,
-        icon: <Check size={24} />,
-        color: "orange",
-      },
-      {
-        title: "Deal Done",
-        value: dealDone,
-        icon: <Award size={24} />,
-        color: "green",
-      },
-    ]);
-  };
+    loadCustomKpis();
+  }, [viewingUserPhone]);
 
   const handleStatusUpdate = (leadId: string, newStatus: string) => {
     setLeads(
@@ -305,7 +365,7 @@ const Dashboard: React.FC = () => {
 
   return (
     <div className="container mx-auto px-1 py-3">
-      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-6 mb-8">
+      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6 mb-8">
         {kpis.map((kpi, index) => (
           <KPICard
             key={index}
@@ -348,6 +408,7 @@ const Dashboard: React.FC = () => {
         onStatusUpdate={handleStatusUpdate}
         isLoading={userSwitchLoading}
         viewingUserPhone={viewingUserPhone}
+        customKpis={customKpis}
       />
       {/* </div> */}
     </div>

@@ -4,21 +4,24 @@ import { Lead } from "../../types";
 import { Phone, ExternalLink, ChevronDown, ChevronUp } from "lucide-react";
 import { updateLeadStatus } from "../../services/api";
 import { SyncLoader } from "react-spinners";
+import { CustomKpi } from "../../types/types";
 
 interface LeadsTableProps {
   leads: Lead[];
   onStatusUpdate: (index: string, newStatus: string) => void;
   isLoading?: boolean;
   viewingUserPhone: string;
+  customKpis: CustomKpi[];
 }
 
-const STATUS_OPTIONS = ["New Lead", "Meeting Done", "Deal Done"];
+// const STATUS_OPTIONS = ["New Lead", "Meeting Done", "Deal Done"];
 
 const LeadsTable: React.FC<LeadsTableProps> = ({
   leads,
   onStatusUpdate,
   isLoading = false,
   viewingUserPhone,
+  customKpis,
 }) => {
   const [searchTerm, setSearchTerm] = useState("");
   const [statusFilter, setStatusFilter] = useState<string>("all");
@@ -54,6 +57,12 @@ const LeadsTable: React.FC<LeadsTableProps> = ({
       return { label: labels[i] || `Field ${i + 1}`, value };
     });
   };
+
+  // Combine default and custom statuses
+  const statusOptions = useMemo(() => {
+    const customStatuses = customKpis.map((kpi) => kpi.label);
+    return ["New Lead", "Meeting Done", "Deal Done", ...customStatuses];
+  }, [customKpis]);
 
   const handleStatusChange = async (leadId: string, newStatus: string) => {
     setUpdatingStatus(leadId);
@@ -419,7 +428,7 @@ const LeadsTable: React.FC<LeadsTableProps> = ({
                               : ""
                           }`}
                         >
-                          {STATUS_OPTIONS.map((status) => (
+                          {statusOptions.map((status) => (
                             <option key={status} value={status}>
                               {status}
                             </option>

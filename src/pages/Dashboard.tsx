@@ -1,11 +1,16 @@
-import React, { useEffect, useState, useCallback } from "react";
-import { Users, Check, Award, ChevronDown } from "lucide-react";
+import React, { useEffect, useState, useCallback, ChangeEvent } from "react";
 import KPICard from "../components/dashboard/KPICard";
 import LeadsTable from "../components/dashboard/LeadsTable";
-import { Lead, KPI } from "../types";
-import { syncLeadsFromSheets, fetchLeadsFromFirestore } from "../services/api";
+import { Lead, CustomKpi } from "../types/types";
+import { KPI } from "../types";
+import {
+  syncLeadsFromSheets,
+  fetchLeadsFromFirestore,
+  importLeadsFromCSV,
+} from "../services/api";
 import { exportToCSV } from "../utils/exportCsv";
 import axios from "axios";
+import Papa from "papaparse";
 import { getAuth } from "firebase/auth";
 import { db, fetchAllUsers } from "../services/firebase";
 import { doc, getDoc } from "firebase/firestore";
@@ -13,10 +18,22 @@ import ReactSelect, { components } from "react-select";
 import { SyncLoader } from "react-spinners";
 import { StylesConfig, GroupBase } from "react-select";
 import { fetchCustomKpis } from "../services/customKpis";
-import { CustomKpi } from "../types/types";
-import { Home, Mail, FileText, MapPin } from "lucide-react";
+import {
+  Users,
+  Check,
+  Award,
+  ChevronDown,
+  IndianRupee,
+  Calendar,
+  CheckCircle,
+  Home,
+  Mail,
+  FileText,
+  MapPin,
+} from "lucide-react";
 
 const Dashboard: React.FC = () => {
+  // State variables from both versions
   const [leads, setLeads] = useState<Lead[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
@@ -32,10 +49,12 @@ const Dashboard: React.FC = () => {
   const [selectedUser, setSelectedUser] = useState<string | null>(null);
   const [usersLoading, setUsersLoading] = useState(false);
   const [userSwitchLoading, setUserSwitchLoading] = useState(false);
-  // Add viewingUserPhone to state
   const [viewingUserPhone, setViewingUserPhone] = useState("");
   const [customKpis, setCustomKpis] = useState<CustomKpi[]>([]);
+  const [showPopup, setShowPopup] = useState(false);
+  const [importError, setImportError] = useState("");
 
+  // Combined KPI computation
   const computeKPIs = useCallback(
     (list: Lead[]) => {
       const meetingDone = list.filter(
@@ -83,6 +102,18 @@ const Dashboard: React.FC = () => {
           case "map-pin":
             iconComponent = <MapPin size={24} />;
             break;
+          case "calendar":
+            iconComponent = <Calendar size={24} />;
+            break;
+          case "indian-rupee":
+            iconComponent = <IndianRupee size={24} />;
+            break;
+          case "users":
+            iconComponent = <Users size={24} />;
+            break;
+          case "check-circle":
+            iconComponent = <CheckCircle size={24} />;
+            break;
           default:
             iconComponent = <Home size={24} />;
         }
@@ -97,15 +128,16 @@ const Dashboard: React.FC = () => {
 
       return [...defaultKpis, ...customCards];
     },
-    [customKpis] // <-- re-create whenever customKpis change
+    [customKpis]
   );
 
   useEffect(() => {
     setKpis(computeKPIs(leads));
-  }, [leads, customKpis, computeKPIs]);
+  }, [leads, computeKPIs]);
 
+  // Combined data loading
   useEffect(() => {
-    const load = async () => {
+    const loadData = async () => {
       setLoading(true);
       try {
         const auth = getAuth();
@@ -133,16 +165,19 @@ const Dashboard: React.FC = () => {
           }
         }
 
-        // 1. Fetch initial leads
+        // Fetch initial leads
         const initial = await fetchLeadsFromFirestore();
         setLeads(initial);
 
-        // 2. Sync from Sheets, then re-fetch
-        await syncLeadsFromSheets();
-        const updated = await fetchLeadsFromFirestore();
-        setLeads(updated);
+        // Sync from Sheets in background
+        syncLeadsFromSheets()
+          .then(async () => {
+            const updated = await fetchLeadsFromFirestore();
+            setLeads(updated);
+          })
+          .catch(console.error);
 
-        // 3. Fetch custom KPIs
+        // Fetch custom KPIs
         const kpis = await fetchCustomKpis(sanitizedPhone);
         setCustomKpis(kpis);
       } catch (err: unknown) {
@@ -158,29 +193,106 @@ const Dashboard: React.FC = () => {
         setLoading(false);
       }
     };
-    load();
+    loadData();
   }, []);
 
-  // Update when viewing user changes
-  useEffect(() => {
-    const loadCustomKpis = async () => {
-      if (viewingUserPhone) {
-        try {
-          const kpis = await fetchCustomKpis(viewingUserPhone);
-          setCustomKpis(kpis);
-        } catch (error) {
-          console.error("Failed to load custom KPIs", error);
-        }
+  // CSV Import functions from second version
+  const handleCSVImport = async (e: ChangeEvent<HTMLInputElement>) => {
+    const files = e.target.files;
+    if (!files || files.length === 0) return;
+
+    setImportError("");
+
+    try {
+      const file = files[0];
+      const text = await readFileAsText(file);
+      const leads = parseCSV(text);
+
+      await importLeadsFromCSV(leads);
+
+      // Refresh leads after import
+      const updatedLeads = await fetchLeadsFromFirestore();
+      setLeads(updatedLeads);
+
+      setShowPopup(false);
+    } catch (err: unknown) {
+      console.error("CSV import error:", err);
+      if (err instanceof Error) {
+        setImportError(err.message || "Failed to import CSV");
+      } else {
+        setImportError("Failed to import CSV");
       }
-    };
+    } finally {
+      e.target.value = "";
+    }
+  };
 
-    loadCustomKpis();
-  }, [viewingUserPhone]);
+  const readFileAsText = (file: File): Promise<string> => {
+    return new Promise((resolve, reject) => {
+      const reader = new FileReader();
+      reader.onload = (e) => resolve(e.target?.result as string);
+      reader.onerror = () => reject(new Error("File reading failed"));
+      reader.readAsText(file);
+    });
+  };
 
+  const parseCSV = (csvText: string): Lead[] => {
+    interface ParseResult<T> {
+      data: T[];
+      errors: Papa.ParseError[];
+      meta: Papa.ParseMeta;
+    }
+
+    const results: ParseResult<Record<string, string>> = Papa.parse(csvText, {
+      header: true,
+      skipEmptyLines: true,
+      transformHeader: (header: string) => header.trim(),
+    });
+
+    if (results.errors.length > 0) {
+      throw new Error("Invalid CSV format");
+    }
+
+    return results.data.map(
+      (row): Lead => ({
+        // id: `imported-${Date.now()}-${index}`,
+        created_time: row.created_time || new Date().toISOString(),
+        platform: row.platform || "",
+        name: row.name || "",
+        whatsapp_number_: row.whatsapp_number_ || "",
+        lead_status: row.lead_status || "New Lead",
+        comments: row.comments || "",
+      })
+    );
+  };
+
+  // Event handlers from both versions
   const handleStatusUpdate = (leadId: string, newStatus: string) => {
     setLeads(
       leads.map((lead) =>
         lead.id === leadId ? { ...lead, lead_status: newStatus } : lead
+      )
+    );
+  };
+
+  const handleFollowUpScheduled = (
+    leadId: string,
+    date: string,
+    time: string
+  ) => {
+    setLeads(
+      leads.map((lead) =>
+        lead.id === leadId
+          ? { ...lead, followUpDate: date, followUpTime: time }
+          : lead
+      )
+    );
+  };
+
+  const handleUpdateCustomerComment = (leadId: string, comment: string) => {
+    setLeads(
+      leads.map((lead) =>
+        lead.id === leadId ? { ...lead, customerComment: comment } : lead
       )
     );
   };
@@ -192,6 +304,27 @@ const Dashboard: React.FC = () => {
     );
   };
 
+  const handleDownloadSample = () => {
+    const headers = [
+      "created_time",
+      "platform",
+      "name",
+      "whatsapp_number_",
+      "lead_status",
+      "comments",
+    ];
+    const csvContent = headers.join(",") + "\n";
+    const blob = new Blob([csvContent], { type: "text/csv;charset=utf-8;" });
+    const url = URL.createObjectURL(blob);
+
+    const link = document.createElement("a");
+    link.href = url;
+    link.setAttribute("download", "sample_leads.csv");
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+  };
+
   const handleUserChange = async (
     selectedOption: { value: string; label: string } | null
   ) => {
@@ -200,17 +333,16 @@ const Dashboard: React.FC = () => {
       try {
         const userPhone = selectedOption.value;
         setSelectedUser(userPhone);
-        setViewingUserPhone(userPhone); // Update viewing user phone
+        setViewingUserPhone(userPhone);
         const userLeads = await fetchLeadsFromFirestore(userPhone);
         setLeads(userLeads);
-        computeKPIs(userLeads);
       } catch (error) {
         console.error("Failed to switch user", error);
       } finally {
         setUserSwitchLoading(false);
       }
     } else {
-      // Reset to current user if selection is cleared
+      // Reset to current user
       const auth = getAuth();
       const user = auth.currentUser;
       if (user?.phoneNumber) {
@@ -219,6 +351,8 @@ const Dashboard: React.FC = () => {
       }
     }
   };
+
+  // UserDropdown component from first version
   const UserDropdown = () => {
     type UserOption = {
       value: string;
@@ -377,7 +511,6 @@ const Dashboard: React.FC = () => {
         ))}
       </div>
 
-      {/* <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-6"> */}
       <div className="flex flex-col md:flex-row md:items-center md:justify-between mb-6">
         <div>
           <h2 className="text-xl font-semibold text-gray-800">Recent Leads</h2>
@@ -388,29 +521,89 @@ const Dashboard: React.FC = () => {
         <div className="mt-4 md:mt-0 flex flex-col sm:flex-row gap-3">
           {isAdmin && <UserDropdown />}
           <button
+            onClick={() => setShowPopup(true)}
+            className={`inline-flex items-center justify-center px-4 py-2 border border-transparent text-sm font-medium rounded-md shadow-sm text-white bg-gradient-to-r from-green-600 to-green-700 hover:from-green-700 hover:to-green-800 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-green-500 transition-all duration-200 ${
+              userSwitchLoading ? "opacity-70 cursor-not-allowed" : ""
+            }`}
+          >
+            Import CSV
+          </button>
+          <button
             onClick={handleExportCSV}
             disabled={userSwitchLoading}
             className={`inline-flex items-center justify-center px-4 py-2 border border-transparent text-sm font-medium rounded-md shadow-sm text-white bg-gradient-to-r from-blue-600 to-blue-700 hover:from-blue-700 hover:to-blue-800 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500 transition-all duration-200 ${
               userSwitchLoading ? "opacity-70 cursor-not-allowed" : ""
             }`}
           >
-            {userSwitchLoading ? (
-              <SyncLoader size={6} color="#ffffff" />
-            ) : (
-              "Export to CSV"
-            )}
+            Export to CSV
           </button>
         </div>
       </div>
 
+      {showPopup && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-md transition-all duration-300">
+          <div className="bg-white rounded-2xl shadow-2xl p-8 max-w-md w-full relative border border-gray-200">
+            <button
+              onClick={() => setShowPopup(false)}
+              className="absolute top-3 right-3 text-gray-400 hover:text-red-500 text-3xl transition-colors"
+            >
+              &times;
+            </button>
+
+            <h3 className="text-xl font-bold mb-6 text-gray-800 text-center">
+              📂 Import CSV File
+            </h3>
+
+            {importError && (
+              <div className="mb-4 rounded border border-red-400 bg-red-100 px-4 py-2 text-red-700 shadow text-sm">
+                {importError}
+              </div>
+            )}
+
+            <ol className="list-decimal space-y-6 text-gray-700 text-sm pl-6">
+              <li>
+                <p className="mb-2 font-medium">Download the sample file:</p>
+                <button
+                  onClick={handleDownloadSample}
+                  className="bg-green-600 text-white text-sm px-4 py-2 rounded-md hover:bg-green-700 shadow transition"
+                >
+                  Download
+                </button>
+              </li>
+
+              <li>
+                <p className="font-medium">
+                  Add your data to the file using the same format as shown in
+                  the sample.
+                </p>
+              </li>
+
+              <li>
+                <p className="mb-2 font-medium">Import your updated file:</p>
+                <label className="inline-block bg-blue-600 text-white text-sm px-4 py-2 rounded-md cursor-pointer hover:bg-blue-700 shadow transition">
+                  Import
+                  <input
+                    type="file"
+                    accept=".csv"
+                    className="hidden"
+                    onChange={handleCSVImport}
+                  />
+                </label>
+              </li>
+            </ol>
+          </div>
+        </div>
+      )}
+
       <LeadsTable
         leads={leads}
         onStatusUpdate={handleStatusUpdate}
+        onFollowUpScheduled={handleFollowUpScheduled}
+        onUpdateCustomerComment={handleUpdateCustomerComment}
         isLoading={userSwitchLoading}
         viewingUserPhone={viewingUserPhone}
         customKpis={customKpis}
       />
-      {/* </div> */}
     </div>
   );
 };

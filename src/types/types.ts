@@ -17,3 +17,11 @@ export interface Lead {
   created_time: string;
   [key: string]: string | number | boolean | undefined;
 }
+
+export interface CustomField {
+  id: string;
+  name: string;
+  type: "number" | "text" | "select" | "date" | "checkbox" | "textarea";
+  options?: string[];
+  user_phone: string;
+}

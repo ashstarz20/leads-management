@@ -9,6 +9,7 @@ import {
   updateLeadByUser,
 } from "../services/firebase";
 import { doc, setDoc, addDoc, getDocs } from "firebase/firestore";
+import { createLead } from "./firebase";
 
 const BASE_API_URL =
   "https://asia-south1-starzapp.cloudfunctions.net/whatsAppWebHook-2/fetch-individual-client-leads";
@@ -101,6 +102,58 @@ export const updateLeadStatus = async (
     }
   } catch (error) {
     console.error("Error updating lead:", error);
+    throw error;
+  }
+};
+
+export const importLeadsFromCSV = async (leads: Lead[]): Promise<void> => {
+  try {
+    // Use batched writes for better performance
+    const batchPromises = leads.map((lead) => createLead(lead));
+    await Promise.all(batchPromises);
+  } catch (error) {
+    console.error("Error importing leads:", error);
+    throw new Error("Failed to save leads to database");
+  }
+};
+
+export const scheduleFollowUp = async (
+  leadId: string,
+  date: Date,
+  time: string,
+  userPhone?: string
+): Promise<void> => {
+  try {
+    if (userPhone) {
+      await updateLeadByUser(userPhone, leadId, {
+        followUpDate: date.toISOString(),
+        followUpTime: time,
+      });
+    } else {
+      await updateLead(leadId, {
+        followUpDate: date.toISOString(),
+        followUpTime: time,
+      });
+    }
+  } catch (error) {
+    console.error("Error scheduling follow-up:", error);
+    throw error;
+  }
+};
+
+export const updateCustomerComment = async (
+  leadId: string,
+  comment: string,
+  userPhone?: string
+): Promise<void> => {
+  try {
+    if (userPhone) {
+      await updateLeadByUser(userPhone, leadId, { customerComment: comment });
+    } else {
+      await updateLead(leadId, { customerComment: comment });
+    }
+  } catch (error) {
+    console.error("Error updating customer comment:", error);
     throw error;
   }
 };

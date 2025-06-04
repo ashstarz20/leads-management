@@ -11,12 +11,13 @@ import {
   FileText,
   MapPin,
   Calendar,
-  DollarSign,
+  IndianRupee,
   Users,
   CheckCircle,
   Check,
   BarChart2,
   Loader2,
+  Tag,
 } from "lucide-react";
 import {
   addCustomKpi,
@@ -26,6 +27,12 @@ import {
 import { CustomKpi } from "../types/types";
 import { doc, getDoc } from "firebase/firestore";
 import { db } from "../services/firebase";
+import {
+  fetchCustomFields,
+  addCustomField,
+  deleteCustomField,
+} from "../services/customFields";
+import { CustomField } from "../types/types";
 
 const Settings: React.FC = () => {
   const { currentUser } = useAuth();
@@ -40,7 +47,15 @@ const Settings: React.FC = () => {
   const [newKpiColor, setNewKpiColor] = useState("purple");
   const [newKpiIcon, setNewKpiIcon] = useState("home");
   const [isAdmin, setIsAdmin] = useState(false);
-  const [activeTab, setActiveTab] = useState<"profile" | "kpis">("profile");
+  const [activeTab, setActiveTab] = useState<"profile" | "kpis" | "fields">(
+    "profile"
+  );
+
+  // Add new state variables for custom fields
+  const [newFieldName, setNewFieldName] = useState("");
+  const [newFieldType, setNewFieldType] = useState("text");
+  const [newFieldOptions, setNewFieldOptions] = useState("");
+  const [customFields, setCustomFields] = useState<CustomField[]>([]);
 
   // Define color options
   const colorOptions = [
@@ -56,14 +71,14 @@ const Settings: React.FC = () => {
 
   // Define icon options
   const iconOptions = [
-    { value: "home", label: "Home", icon: <Home size={16} /> },
-    { value: "mail", label: "Mail", icon: <Mail size={16} /> },
-    { value: "file-text", label: "Document", icon: <FileText size={16} /> },
-    { value: "map-pin", label: "Location", icon: <MapPin size={16} /> },
-    { value: "calendar", label: "Calendar", icon: <Calendar size={16} /> },
-    { value: "dollar-sign", label: "Dollar", icon: <DollarSign size={16} /> },
-    { value: "users", label: "Users", icon: <Users size={16} /> },
-    { value: "check-circle", label: "Check", icon: <CheckCircle size={16} /> },
+    { value: "home", icon: <Home size={16} /> },
+    { value: "mail", icon: <Mail size={16} /> },
+    { value: "file-text", icon: <FileText size={16} /> },
+    { value: "map-pin", icon: <MapPin size={16} /> },
+    { value: "calendar", icon: <Calendar size={16} /> },
+    { value: "indian-rupee", icon: <IndianRupee size={16} /> },
+    { value: "users", icon: <Users size={16} /> },
+    { value: "check-circle", icon: <CheckCircle size={16} /> },
   ];
 
   useEffect(() => {
@@ -154,6 +169,75 @@ const Settings: React.FC = () => {
     }
   };
 
+  // Add new functions
+  const handleAddField = async () => {
+    if (!newFieldName.trim() || !currentUser?.phoneNumber) return;
+
+    try {
+      const sanitizedPhone = currentUser.phoneNumber.replace(/[^\d]/g, "");
+
+      const newField = {
+        name: newFieldName.trim(),
+        type: newFieldType as
+          | "text"
+          | "number"
+          | "select"
+          | "date"
+          | "checkbox",
+        user_phone: sanitizedPhone,
+        // Only spread `options` if `newFieldType === "select"`
+        ...(newFieldType === "select" && {
+          options: newFieldOptions.split(",").map((opt) => opt.trim()),
+        }),
+      };
+
+      const addedField = await addCustomField(sanitizedPhone, newField);
+      setCustomFields([...customFields, addedField]);
+      setNewFieldName("");
+      setNewFieldType("text");
+      setNewFieldOptions("");
+      setSuccess("Custom field added successfully!");
+      setError("");
+    } catch (error) {
+      console.error("Error adding custom field:", error);
+      setError("Failed to add custom field. Please try again.");
+      setSuccess("");
+    }
+  };
+
+  const handleDeleteField = async (id: string) => {
+    if (!currentUser?.phoneNumber) return;
+
+    try {
+      const sanitizedPhone = currentUser.phoneNumber.replace(/[^\d]/g, "");
+      await deleteCustomField(sanitizedPhone, id);
+      setCustomFields(customFields.filter((field) => field.id !== id));
+      setSuccess("Custom field deleted successfully!");
+      setError("");
+    } catch (error) {
+      console.error("Error deleting custom field:", error);
+      setError("Failed to delete custom field. Please try again.");
+      setSuccess("");
+    }
+  };
+
+  // Add to the existing useEffect to load custom fields
+  useEffect(() => {
+    const loadCustomFields = async () => {
+      if (currentUser?.phoneNumber) {
+        try {
+          const sanitizedPhone = currentUser.phoneNumber.replace(/[^\d]/g, "");
+          const fields = await fetchCustomFields(sanitizedPhone);
+          setCustomFields(fields);
+        } catch (error) {
+          console.error("Failed to load custom fields", error);
+        }
+      }
+    };
+
+    loadCustomFields();
+  }, [currentUser]);
+
   return (
     <div className="space-y-6">
       <div className="bg-white rounded-xl shadow-md border border-gray-200">
@@ -172,7 +256,6 @@ const Settings: React.FC = () => {
                 Profile Settings
               </div>
             </button>
-
             {isAdmin && (
               <button
                 onClick={() => setActiveTab("kpis")}
@@ -193,6 +276,20 @@ const Settings: React.FC = () => {
                 </div>
               </button>
             )}
+
+            <button
+              onClick={() => setActiveTab("fields")}
+              className={`py-4 px-1 border-b-2 font-medium text-sm ${
+                activeTab === "fields"
+                  ? "border-blue-500 text-blue-600"
+                  : "border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300"
+              }`}
+            >
+              <div className="flex items-center">
+                <Tag className="h-4 w-4 mr-2" />
+                Custom Fields
+              </div>
+            </button>
           </nav>
         </div>
 
@@ -374,9 +471,6 @@ const Settings: React.FC = () => {
                           }`}
                         >
                           {option.icon}
-                          <span className="mt-1 text-xs text-gray-500">
-                            {option.label}
-                          </span>
                         </button>
                       ))}
                     </div>
@@ -529,6 +623,147 @@ const Settings: React.FC = () => {
                         as status options in leads table.
                       </p>
                     </div>
+                  </div>
+                )}
+              </div>
+            </div>
+          )}
+
+          {/* Add new tab content */}
+          {activeTab === "fields" && isAdmin && (
+            <div className="space-y-6">
+              <div className="bg-gray-50 rounded-xl p-5 border border-gray-200">
+                <div className="flex items-center mb-4">
+                  <div className="bg-blue-100 p-2 rounded-lg mr-3">
+                    <Plus className="h-5 w-5 text-blue-600" />
+                  </div>
+                  <h3 className="text-lg font-medium text-gray-800">
+                    Create New Custom Field
+                  </h3>
+                </div>
+
+                <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-2">
+                      Field Name
+                    </label>
+                    <input
+                      type="text"
+                      value={newFieldName}
+                      onChange={(e) => setNewFieldName(e.target.value)}
+                      className="w-full rounded-lg border border-gray-300 px-4 py-3 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent shadow-sm transition"
+                      placeholder="e.g., Location, Budget"
+                    />
+                  </div>
+
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-2">
+                      Field Type
+                    </label>
+                    <select
+                      value={newFieldType}
+                      onChange={(e) => setNewFieldType(e.target.value)}
+                      className="w-full rounded-lg border border-gray-300 px-4 py-3 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent shadow-sm transition"
+                    >
+                      <option value="text">Text</option>
+                      <option value="number">Number</option>
+                      <option value="select">Dropdown</option>
+                      <option value="date">Date</option>
+                      <option value="checkbox">Checkbox</option>
+                    </select>
+                  </div>
+
+                  {newFieldType === "select" && (
+                    <div>
+                      <label className="block text-sm font-medium text-gray-700 mb-2">
+                        Options (comma separated)
+                      </label>
+                      <input
+                        type="text"
+                        value={newFieldOptions}
+                        onChange={(e) => setNewFieldOptions(e.target.value)}
+                        className="w-full rounded-lg border border-gray-300 px-4 py-3 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent shadow-sm transition"
+                        placeholder="e.g., Option1, Option2"
+                      />
+                    </div>
+                  )}
+                </div>
+
+                <button
+                  onClick={handleAddField}
+                  className="mt-6 w-full flex items-center justify-center px-4 py-3 border border-transparent text-base font-medium rounded-lg shadow-sm text-white bg-gradient-to-r from-blue-600 to-indigo-700 hover:from-blue-700 hover:to-indigo-800 transition-all"
+                >
+                  <Plus className="h-5 w-5 mr-2" />
+                  Add Custom Field
+                </button>
+              </div>
+
+              <div>
+                <div className="flex items-center mb-4">
+                  <div className="bg-green-100 p-2 rounded-lg mr-3">
+                    <Tag className="h-5 w-5 text-green-600" />
+                  </div>
+                  <h3 className="text-lg font-medium text-gray-800">
+                    Your Custom Fields
+                  </h3>
+                </div>
+
+                {customFields.length === 0 ? (
+                  <div className="text-center py-8 rounded-xl border-2 border-dashed border-gray-300">
+                    <div className="bg-gray-100 border-2 border-dashed rounded-xl w-16 h-16 mx-auto flex items-center justify-center">
+                      <Plus className="h-8 w-8 text-gray-400" />
+                    </div>
+                    <h3 className="mt-4 text-lg font-medium text-gray-900">
+                      No custom fields created
+                    </h3>
+                    <p className="mt-1 text-sm text-gray-500 max-w-md mx-auto">
+                      Create custom fields to store additional information about
+                      your leads.
+                    </p>
+                  </div>
+                ) : (
+                  <div className="overflow-x-auto">
+                    <table className="min-w-full divide-y divide-gray-200">
+                      <thead className="bg-gray-50">
+                        <tr>
+                          <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                            Field Name
+                          </th>
+                          <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                            Type
+                          </th>
+                          <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                            Options
+                          </th>
+                          <th className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">
+                            Actions
+                          </th>
+                        </tr>
+                      </thead>
+                      <tbody className="bg-white divide-y divide-gray-200">
+                        {customFields.map((field) => (
+                          <tr key={field.id}>
+                            <td className="px-6 py-4 whitespace-nowrap text-sm font-medium text-gray-900">
+                              {field.name}
+                            </td>
+                            <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
+                              {field.type}
+                            </td>
+                            <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
+                              {field.options ? field.options.join(", ") : "-"}
+                            </td>
+                            <td className="px-6 py-4 whitespace-nowrap text-right text-sm font-medium">
+                              <button
+                                onClick={() => handleDeleteField(field.id)}
+                                className="text-red-600 hover:text-red-900"
+                              >
+                                Delete
+                              </button>
+                            </td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
                   </div>
                 )}
               </div>
